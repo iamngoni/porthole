@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Tests
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.8
+          channel: stable
+      # Swift, then the Dart protocol package against the Swift host, then the Flutter app. Swift property
+      # tests draw fresh inputs each run and print a `.fixedSeed(...)` line to replay a failure; the Dart
+      # and Flutter ones run from a fixed seed.
+      - name: Property and end-to-end tests
+        run: ./test.sh
+
+  build:
+    name: Build apps
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate project
+        run: brew install xcodegen && cp project.example.yml project.yml && xcodegen generate
+      - name: Mac host
+        run: xcodebuild -project Porthole.xcodeproj -scheme PortholeHost -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
+      - name: Original Swift iPad and iPhone app
+        run: xcodebuild -project Porthole.xcodeproj -scheme Porthole -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.8
+          channel: stable
+      - name: iPad and iPhone app
+        working-directory: app
+        run: flutter build ios --simulator --debug
+      - name: Android app
+        working-directory: app
+        run: flutter build apk --debug

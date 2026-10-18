@@ -1,0 +1,22 @@
+name: porthole_spike
+description: "A new Flutter project."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  bonsoir: ^7.1.5
+  flutter:
+    sdk: flutter
+  flutter_webrtc: ^1.6.2+hotfix.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  glados: ^1.1.7
+
+flutter:
+  uses-material-design: true

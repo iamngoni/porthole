@@ -1,0 +1,4 @@
+// Copy this to Signing.xcconfig, which git ignores, with your own Team ID from developer.apple.com/account
+// under Membership details. If that team can't use the bundle ID in Runner.xcodeproj, change it to one of
+// your own there.
+DEVELOPMENT_TEAM = YOUR_TEAM_ID

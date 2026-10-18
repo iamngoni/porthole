@@ -1,0 +1,106 @@
+# Copy this to project.yml, which git ignores, and fill in your own Apple team, signing identity and bundle
+# IDs. Then run `xcodegen generate`.
+name: Porthole
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "26.0"
+    macOS: "26.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    # Your Team ID, from developer.apple.com/account under Membership details.
+    DEVELOPMENT_TEAM: YOUR_TEAM_ID
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+packages:
+  PortholeKit:
+    path: Packages/PortholeKit
+
+targets:
+  PortholeHost:
+    type: application
+    platform: macOS
+    sources: [Host]
+    dependencies:
+      - package: PortholeKit
+        product: PortholeProtocol
+      - package: PortholeKit
+        product: PortholeSession
+    info:
+      path: Host/Info.plist
+      properties:
+        CFBundleName: Porthole Host
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleDisplayName: Porthole Host
+        LSApplicationCategoryType: public.app-category.utilities
+        LSUIElement: true
+        NSLocalNetworkUsageDescription: Porthole Host lets your iPad and iPhone find this Mac and show its windows.
+        NSBonjourServices: [_porthole._tcp]
+        NSMicrophoneUsageDescription: Porthole never records audio. This is only shown if the video library asks.
+    settings:
+      base:
+        PRODUCT_NAME: PortholeHost
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.porthole.host
+        ENABLE_HARDENED_RUNTIME: YES
+        # A stable signing identity keeps the Screen Recording permission across rebuilds. If you have more
+        # than one Apple Development certificate, name yours in full: "Apple Development: Name (ID)".
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Apple Development"
+        PROVISIONING_PROFILE_SPECIFIER: ""
+
+  Porthole:
+    type: application
+    platform: iOS
+    sources: [Client]
+    dependencies:
+      - package: PortholeKit
+        product: PortholeProtocol
+      - package: PortholeKit
+        product: PortholeSession
+    info:
+      path: Client/Info.plist
+      properties:
+        CFBundleDisplayName: Porthole
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        UILaunchScreen: {}
+        UIApplicationSupportsIndirectInputEvents: true
+        UIRequiresFullScreen: false
+        UISupportedInterfaceOrientations:
+          [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad:
+          [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        NSLocalNetworkUsageDescription: Porthole looks for your Mac on this network so it can show its windows.
+        NSBonjourServices: [_porthole._tcp]
+        # Pairing and signaling use X25519 and ChaCha20-Poly1305, and video WebRTC's DTLS-SRTP: standard
+        # encryption beyond the system's, so not exempt (mass market, no proprietary algorithms).
+        ITSAppUsesNonExemptEncryption: true
+        # Without this, iPhones cap animation and video drawing at 60 frames a second even on ProMotion.
+        CADisableMinimumFrameDurationOnPhone: true
+    settings:
+      base:
+        PRODUCT_NAME: Porthole
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.porthole
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+
+schemes:
+  PortholeHost:
+    build:
+      targets:
+        PortholeHost: all
+    run:
+      config: Debug
+  Porthole:
+    build:
+      targets:
+        Porthole: all
+    run:
+      config: Debug

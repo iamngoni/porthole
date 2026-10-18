@@ -1,0 +1,17 @@
+name: porthole_protocol
+description: The Porthole wire protocol (v3) for Dart clients. Mirrors Packages/PortholeKit/Sources/PortholeProtocol.
+publish_to: none
+version: 3.0.0
+
+environment:
+  sdk: ^3.9.0
+dependencies:
+  collection: ^1.19.1
+  cryptography: ^2.9.0
+  fixnum: ^1.1.1
+  meta: ^1.15.0
+  protobuf: ^6.0.0
+dev_dependencies:
+  glados: ^1.1.7
+  lints: ^6.1.0
+  test: ^1.33.0

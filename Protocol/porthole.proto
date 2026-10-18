@@ -1,0 +1,318 @@
+// Porthole wire format, version 3. Shared by the Mac host (Swift) and every client (Swift, Dart).
+// Generate with Protocol/generate.sh; the generated code is committed.
+//
+// Rules that keep old and new apps able to tell each other to update:
+// - `Wire.version` (field 1) and `Wire.bye` (field 10, with `Bye.reason` field 1) never change.
+// - Fields are only ever added. A removed field's number is reserved, never reused.
+// - Version 2 was JSON, so a v2 frame starts with `{`, which no v3 frame can (0x7B would be field 15
+//   as a group). A v3 side that gets one answers with a v2 JSON bye so the old app says "update".
+
+syntax = "proto3";
+
+package porthole.v3;
+
+option swift_prefix = "PB";
+
+// MARK: Signaling connection: one per length-prefixed frame
+
+message Wire {
+  // 3 for this schema. A side that gets another number says bye with reason "versionMismatch".
+  uint32 version = 1;
+  oneof msg {
+    PairRequest pair_request = 2;
+    PairChallenge pair_challenge = 3;
+    PairReveal pair_reveal = 4;
+    PairConfirm pair_confirm = 5;
+    PairComplete pair_complete = 6;
+    SessionHello session_hello = 7;
+    SessionAccept session_accept = 8;
+    Sealed sealed = 9;
+    // Unauthenticated; it only ever closes a connection.
+    Bye bye = 10;
+  }
+}
+
+// Device → host. Commits to the device's key before the host reveals anything.
+message PairRequest {
+  string device_id = 1;
+  string device_name = 2;
+  bytes commitment = 3;
+}
+
+// Host → device.
+message PairChallenge {
+  string host_id = 1;
+  string host_name = 2;
+  bytes host_key = 3;
+  bytes host_nonce = 4;
+}
+
+// Device → host. Opens the commitment.
+message PairReveal {
+  bytes device_key = 1;
+  bytes device_nonce = 2;
+}
+
+// Device → host, once the person confirms the codes match.
+message PairConfirm {
+  bytes mac = 1;
+}
+
+// Host → device, once the person at the Mac clicks Allow.
+message PairComplete {
+  string pair_id = 1;
+  bytes mac = 2;
+}
+
+// Device → host at the start of every connection from a paired device.
+message SessionHello {
+  string pair_id = 1;
+  bytes nonce = 2;
+  bytes mac = 3;
+}
+
+// Host → device. Proves the Mac knows the pairing secret too.
+message SessionAccept {
+  bytes nonce = 1;
+  bytes mac = 2;
+}
+
+// An encrypted `Signal`. `counter` is the nonce; each direction counts from 0 with no gaps.
+message Sealed {
+  uint64 counter = 1;
+  bytes box = 2;
+}
+
+message Bye {
+  string reason = 1;
+}
+
+// MARK: Inside a sealed frame
+
+message Signal {
+  oneof msg {
+    ClientHello hello = 1;
+    HostWelcome welcome = 2;
+    string offer = 3;
+    string answer = 4;
+    IceCandidate candidate = 5;
+  }
+}
+
+message ClientHello {
+  uint32 protocol_version = 1;
+  string device_name = 2;
+  // The client's screen in pixels; the host never sends video larger than this.
+  PixelSize viewport = 3;
+  // How many times a second the client's screen refreshes. Absent: 60.
+  optional int64 max_frames_per_second = 4;
+}
+
+message HostWelcome {
+  uint32 protocol_version = 1;
+  string host_name = 2;
+}
+
+message IceCandidate {
+  string sdp = 1;
+  int32 sdp_m_line_index = 2;
+  optional string sdp_mid = 3;
+}
+
+// MARK: Data channel "ctl", one message per data channel message
+
+message ClientMessage {
+  oneof msg {
+    Nothing list_windows = 1;
+    uint32 select = 2;
+    Nothing stop_stream = 3;
+    PixelSize viewport = 4;
+    // Sent every second while connected. The host releases held keys and buttons if these stop.
+    uint64 ping = 5;
+    PointerEvent pointer = 6;
+    ButtonEvent button = 7;
+    ScrollEvent scroll = 8;
+    KeyEvent key = 9;
+    TextEvent text = 10;
+    Nothing release_all = 11;
+    ThumbnailRequest thumbnails = 12;
+    AppIconRequest app_icons = 13;
+    Nothing list_apps = 14;
+    // Open one of the listed apps (or ask it for a window) and stream its window.
+    string launch = 15;
+  }
+}
+
+message HostMessage {
+  oneof msg {
+    WindowList windows = 1;
+    StreamInfo stream_started = 2;
+    StreamInfo geometry = 3;
+    StreamStateUpdate stream_state = 4;
+    Problem error = 5;
+    uint64 pong = 6;
+    ControlStatus control = 7;
+    Thumbnail thumbnail = 8;
+    AppIcon app_icon = 9;
+    AppList apps = 10;
+  }
+}
+
+// A case with nothing to say.
+message Nothing {}
+
+message PixelSize {
+  int64 width = 1;
+  int64 height = 2;
+}
+
+message PointSize {
+  double width = 1;
+  double height = 2;
+}
+
+// A position as a fraction of the video frame, 0…1 from the top left.
+message NormalizedPoint {
+  double x = 1;
+  double y = 2;
+}
+
+message WindowInfo {
+  uint32 id = 1;
+  string title = 2;
+  string app_name = 3;
+  optional string bundle_id = 4;
+  int32 pid = 5;
+  PointSize size = 6;
+  bool is_on_screen = 7;
+}
+
+message WindowList {
+  repeated WindowInfo windows = 1;
+}
+
+// The window on the video track. `gen` increases every time it changes, so stale input can be dropped.
+message StreamInfo {
+  uint32 gen = 1;
+  uint32 window_id = 2;
+  string title = 3;
+  string app_name = 4;
+  PointSize point_size = 5;
+  PixelSize pixel_size = 6;
+  // The most frames per second the Mac sends. Absent: 60.
+  optional int64 frames_per_second = 7;
+}
+
+message StreamState {
+  message Paused {
+    string reason = 1;
+  }
+  oneof state {
+    Nothing live = 1;
+    Paused paused = 2;
+    Nothing closed = 3;
+  }
+}
+
+message StreamStateUpdate {
+  uint32 gen = 1;
+  StreamState state = 2;
+}
+
+message Problem {
+  string code = 1;
+  string message = 2;
+}
+
+message ControlStatus {
+  bool allowed = 1;
+  optional string reason = 2;
+}
+
+message Thumbnail {
+  uint32 window_id = 1;
+  bytes jpeg = 2;
+}
+
+message AppIcon {
+  string bundle_id = 1;
+  bytes png = 2;
+}
+
+message AppInfo {
+  string bundle_id = 1;
+  string name = 2;
+  bool is_running = 3;
+}
+
+message AppList {
+  repeated AppInfo apps = 1;
+}
+
+message ThumbnailRequest {
+  repeated uint32 window_ids = 1;
+  int64 max_long_side = 2;
+}
+
+message AppIconRequest {
+  repeated string bundle_ids = 1;
+}
+
+// MARK: Input
+
+enum MouseButton {
+  MOUSE_BUTTON_LEFT = 0;
+  MOUSE_BUTTON_RIGHT = 1;
+}
+
+// Mirrors the Mac's trackpad scroll phases.
+enum ScrollPhase {
+  SCROLL_PHASE_BEGAN = 0;
+  SCROLL_PHASE_CHANGED = 1;
+  SCROLL_PHASE_ENDED = 2;
+  SCROLL_PHASE_CANCELLED = 3;
+}
+
+enum MomentumPhase {
+  MOMENTUM_PHASE_NONE = 0;
+  MOMENTUM_PHASE_BEGAN = 1;
+  MOMENTUM_PHASE_CHANGED = 2;
+  MOMENTUM_PHASE_ENDED = 3;
+}
+
+message PointerEvent {
+  uint32 gen = 1;
+  NormalizedPoint point = 2;
+}
+
+message ButtonEvent {
+  uint32 gen = 1;
+  NormalizedPoint point = 2;
+  MouseButton button = 3;
+  bool is_down = 4;
+}
+
+// `dx`/`dy` are fractions of the video's width and height. Positive `dy`: the finger moved down.
+message ScrollEvent {
+  uint32 gen = 1;
+  NormalizedPoint point = 2;
+  double dx = 3;
+  double dy = 4;
+  optional ScrollPhase phase = 5;
+  MomentumPhase momentum = 6;
+}
+
+// A physical key as a USB HID usage on the keyboard page (0x07); the Mac's layout picks the character.
+message KeyEvent {
+  uint32 gen = 1;
+  uint32 usage = 2;
+  bool is_down = 3;
+  // Bits: 1 shift, 2 control, 4 option, 8 command.
+  uint32 modifiers = 4;
+}
+
+// Text from the on-screen keyboard, typed as-is.
+message TextEvent {
+  uint32 gen = 1;
+  string text = 2;
+}
