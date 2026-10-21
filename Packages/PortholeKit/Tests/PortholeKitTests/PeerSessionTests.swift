@@ -7,8 +7,12 @@ import VideoToolbox
 @testable import PortholeProtocol
 @testable import PortholeSession
 
-/// Whether this Mac encodes H.264 in hardware. GitHub's virtual Macs don't, and reach about 20 frames a second.
-private let hasHardwareH264Encoder: Bool = {
+/// Whether this Mac can encode H.264 at 120 frames a second: in hardware, and not in a virtual machine.
+/// GitHub's virtual Macs report a hardware encoder but reach 20 to 40 frames a second.
+private let encodesH264AtFullSpeed: Bool = {
+    var inVirtualMachine: Int32 = 0
+    var size = MemoryLayout<Int32>.size
+    if sysctlbyname("kern.hv_vmm_present", &inVirtualMachine, &size, nil, 0) == 0, inVirtualMachine != 0 { return false }
     let specification = [kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: kCFBooleanTrue] as CFDictionary
     var encoderID: CFString?
     var properties: CFDictionary?
@@ -67,8 +71,8 @@ struct PeerSessionTests {
     }
 
     /// A ProMotion client gets more than 60 frames a second when the session allows 120. Software encoding
-    /// can't keep up, so it only runs where the Mac has a hardware encoder.
-    @Test(.enabled(if: hasHardwareH264Encoder, "needs a hardware H.264 encoder"))
+    /// and virtual Macs can't keep up, so it only runs on a real Mac with a hardware encoder.
+    @Test(.enabled(if: encodesH264AtFullSpeed, "needs a real Mac's hardware H.264 encoder"))
     func frames_pushed_at_120_fps_arrive_faster_than_60() async throws {
         let pair = Pair()
         defer { pair.close() }
