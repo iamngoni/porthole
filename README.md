@@ -9,7 +9,7 @@ The original Swift iPad and iPhone app is still in `Client/`. Both apps use the 
 
 ## Status
 
-Phase 2 of 5: same Wi-Fi, paired, view and control.
+Phase 2 of 5: paired, view and control, on the same Wi-Fi or over Tailscale.
 
 | Phase | What you get |
 |---|---|
@@ -36,6 +36,18 @@ How it stays private:
 - The iPad only pairs with the Mac it was pointed at: a different Mac answering is refused. A Mac that doesn't advertise its ID is refused too, and a saved pairing is only ever found by that ID, never by name.
 - In the Flutter app, a paired Mac goes by the name it gave over the encrypted connection, not the one it advertises, so another Mac copying its name or ID can't pass for it.
 - Pairing secrets are in the Keychain and never sync to iCloud. The Flutter app clears them the first time it runs after being reinstalled, since the Keychain outlives deleting an app; on Android they are left out of backups and device transfers.
+
+## Reaching your Mac from anywhere
+
+The app finds Macs with Bonjour, which only works on the same network. To reach a paired Mac from anywhere else, put both on [Tailscale](https://tailscale.com), or another VPN that joins them, and tell the app where the Mac is:
+
+1. Pair on the same Wi-Fi first.
+2. Away from it, the Mac is listed under **Paired, not nearby**. Tap it and enter its Tailscale name (`studio-mac`, or all of `studio-mac.tail1234.ts.net`) or its Tailscale address (`100.x.y.z`). The app connects and remembers the address.
+3. To change or remove the address, use the card's **…** menu. To set it before you leave, touch and hold the Mac while it's nearby and choose **Remote Address…**.
+
+Porthole Host listens on port 47801, so the address doesn't change. If another app already has that port, the Mac takes any free one and its menu says "Nearby only: port 47801 is in use"; it's then only reachable nearby. If you forward another port to it, add `:port` to the address.
+
+It's as private as on Wi-Fi. The app connects with the saved pairing, and the Mac has to prove it holds the pairing secret, so another machine at that address can't pass for your Mac. The video goes straight between the two devices over the VPN, with no relay of Porthole's own.
 
 ## Controlling a window
 
@@ -255,9 +267,16 @@ It runs `swift test` in `Packages/PortholeKit`, builds the test-only `porthole-i
   - the window and app filters
   - merging Bonjour results
   - the pairing codec, which never throws on damaged text
+  - reading a typed Mac address, which never throws and reads back what it shows, and a Mac away from this network is only ever reached at its saved address
+  - the Keychain store against the memory store, run against random saves and removals, including IDs that look like the store's own keys: pairings and addresses stay apart
   - the session controller, run against random sequences of picks, stream starts and stale updates from a stand-in Mac: only the window the person picked is ever shown
   - saved pairings, which are only ever found by the Mac's ID, and paired Macs keep their saved name
-- `client_controller_test.dart` also checks the hello the app sends, every close reason's text, version-skew messages, a bye read before the hang-up that follows it, icon batching, and that input is dropped while the Mac refuses control.
+- `client_controller_test.dart` also checks the hello the app sends, every close reason's text, version-skew messages, a bye read before the hang-up that follows it, icon batching, and that input is dropped while the Mac refuses control. For a Mac away from this network, it checks that:
+  - the app connects at the saved address and port with the saved pairing
+  - another machine at that address fails the handshake before anything is sealed for it
+  - an address it can't reach says to check Tailscale
+  - forgetting the Mac removes its address
+- `address_sheet_test.dart` types names, addresses and typos into the address sheet.
 - `app_icon_test.dart` draws the home-screen icon and checks that it is opaque for iOS and that the adaptive Android foreground is see-through around the mark.
 - `screens_test.dart` renders every preview screen at iPad landscape, iPad portrait and phone sizes and fails on any layout overflow. Set `SCREENSHOTS=<folder>` to save a PNG of each.
 - The app's `interop_test.dart` runs the real session controller against `porthole-interop-host`: it pairs, reconnects with the saved pairing, and checks that the Mac sees the hello and the disconnect.

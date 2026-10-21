@@ -13,6 +13,10 @@ const portholeBonjourType = '_porthole._tcp';
 /// The Bonjour TXT key that carries the Mac's stable ID, so a device knows which pairing to use.
 const portholeHostIdKey = 'id';
 
+/// The port the Mac listens on when it's free, so a device can reach it by name or address where Bonjour
+/// doesn't (over Tailscale or another VPN). PortholeProtocol's `portholeSignalingPort` on the Swift side.
+const portholeSignalingPort = 47801;
+
 sealed class ConnectionEvent {
   const ConnectionEvent();
 }

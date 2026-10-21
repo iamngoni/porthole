@@ -7,10 +7,29 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:porthole_protocol/porthole_protocol.dart';
 
-/// A Mac found on the local network.
+import 'remote_address.dart';
+
+/// A Mac found on the local network, or a paired one reached at an address the person gave.
 @immutable
 final class DiscoveredHost {
-  const DiscoveredHost({required this.name, this.hostId, this.addresses = const [], this.hostname, required this.port});
+  const DiscoveredHost({
+    required this.name,
+    this.hostId,
+    this.addresses = const [],
+    this.hostname,
+    required this.port,
+    this.remote,
+  });
+
+  /// A paired Mac at [address], where Bonjour can't see it (over Tailscale, say).
+  factory DiscoveredHost.remote(PairedHost pairing, RemoteAddress address) => DiscoveredHost(
+        name: pairing.hostName,
+        hostId: pairing.hostId,
+        addresses: address.isIp ? [address.host] : const [],
+        hostname: address.isIp ? null : address.host,
+        port: address.port,
+        remote: address,
+      );
 
   final String name;
 
@@ -20,6 +39,9 @@ final class DiscoveredHost {
   final String? hostname;
   final int port;
 
+  /// Set when this Mac is reached at an address the person gave rather than found nearby.
+  final RemoteAddress? remote;
+
   /// Where to connect, best first: IPv4 addresses, then the Mac's .local name, then IPv6 (link-local
   /// addresses need a scope that doesn't always survive the trip from the plugin).
   List<String> get targets {
@@ -28,8 +50,8 @@ final class DiscoveredHost {
     return {...v4, ?hostname, ...v6}.toList();
   }
 
-  DiscoveredHost copyWith({String? hostId}) =>
-      DiscoveredHost(name: name, hostId: hostId ?? this.hostId, addresses: addresses, hostname: hostname, port: port);
+  DiscoveredHost copyWith({String? hostId}) => DiscoveredHost(
+      name: name, hostId: hostId ?? this.hostId, addresses: addresses, hostname: hostname, port: port, remote: remote);
 
   @override
   bool operator ==(Object other) =>
@@ -38,10 +60,11 @@ final class DiscoveredHost {
       other.hostId == hostId &&
       const ListEquality<String>().equals(other.addresses, addresses) &&
       other.hostname == hostname &&
-      other.port == port;
+      other.port == port &&
+      other.remote == remote;
 
   @override
-  int get hashCode => Object.hash(name, hostId, Object.hashAll(addresses), hostname, port);
+  int get hashCode => Object.hash(name, hostId, Object.hashAll(addresses), hostname, port, remote);
 
   @override
   String toString() => 'DiscoveredHost($name, $hostId, $targets:$port)';

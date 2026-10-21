@@ -12,6 +12,7 @@ import '../design/menu.dart';
 import '../design/pieces.dart';
 import '../design/theme.dart';
 import '../input/display_name.dart';
+import 'address_sheet.dart';
 
 /// Home: the Macs running Porthole Host nearby, and the ones this device is paired with.
 class HostListView extends StatelessWidget {
@@ -161,6 +162,10 @@ class _MacCard extends StatelessWidget {
       final client = ClientScope.read(context);
       showActionMenu(context, title: name, actions: [
         MenuAction('Pair Again', Icons.sync_rounded, () => client.connect(host, pairAgain: true)),
+        MenuAction('Remote Address…', Icons.public_rounded, () async {
+          final address = await showAddressSheet(context, macName: name, current: client.addressOf(pairing));
+          if (address != null) await client.setAddress(pairing, address);
+        }),
         MenuAction('Forget This Mac', Icons.delete_outline_rounded, () => client.forget(pairing), destructive: true),
       ]);
     }
@@ -204,38 +209,72 @@ class _MacCard extends StatelessWidget {
   }
 }
 
+/// A paired Mac that isn't on this network. With an address saved, it connects there (over Tailscale, say);
+/// without one, tapping asks for it.
 class _AwayMacCard extends StatelessWidget {
   const _AwayMacCard({required this.host});
   final PairedHost host;
 
+  Future<void> _askForAddress(BuildContext context, {required bool connect}) async {
+    final client = ClientScope.read(context);
+    final address = await showAddressSheet(context,
+        macName: host.hostName, current: client.addressOf(host), saveLabel: connect ? 'Connect' : 'Save');
+    if (address == null) return;
+    await client.setAddress(host, address);
+    if (connect) client.connectRemotely(host);
+  }
+
   @override
-  Widget build(BuildContext context) => Opacity(
-        opacity: 0.8,
-        child: Glass(
-          radius: 22,
-          padding: const EdgeInsets.all(16),
-          child: Row(children: [
-            const GlowIcon(Icons.laptop_mac_rounded, size: 50, tint: Palette.textTertiary),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(host.hostName, style: display(17, FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
-                const SizedBox(height: 4),
-                Text('Not on this network', style: body(13, FontWeight.w500, Palette.textTertiary)),
-              ]),
-            ),
-            CircleButton(
-              Icons.more_horiz_rounded,
-              size: 36,
-              label: 'More for ${host.hostName}',
-              onPressed: () => showActionMenu(context, title: host.hostName, actions: [
-                MenuAction('Forget This Mac', Icons.delete_outline_rounded, () => ClientScope.read(context).forget(host),
-                    destructive: true),
-              ]),
-            ),
-          ]),
+  Widget build(BuildContext context) {
+    final client = ClientScope.of(context);
+    final address = client.addressOf(host);
+    void menu() => showActionMenu(context, title: host.hostName, actions: [
+          if (address == null)
+            MenuAction('Connect from Anywhere…', Icons.public_rounded, () => _askForAddress(context, connect: true))
+          else ...[
+            MenuAction('Change Remote Address…', Icons.edit_rounded, () => _askForAddress(context, connect: false)),
+            MenuAction('Remove Remote Address', Icons.public_off_rounded, () => client.setAddress(host, null)),
+          ],
+          MenuAction('Forget This Mac', Icons.delete_outline_rounded, () => client.forget(host), destructive: true),
+        ]);
+
+    return Semantics(
+      hint: address == null ? 'Asks where to reach this Mac' : 'Connects to this Mac at ${address.text}',
+      child: Pressable(
+        onTap: address == null ? () => _askForAddress(context, connect: true) : () => client.connectRemotely(host),
+        onLongPress: menu,
+        child: Opacity(
+          opacity: address == null ? 0.8 : 1,
+          child: Glass(
+            radius: 22,
+            padding: const EdgeInsets.all(16),
+            child: Row(children: [
+              GlowIcon(Icons.laptop_mac_rounded, size: 50, tint: address == null ? Palette.textTertiary : Palette.textPrimary),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(host.hostName, style: display(17, FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 4),
+                  Row(children: [
+                    if (address != null) ...[const StatusDot(color: Palette.accent), const SizedBox(width: 7)],
+                    Flexible(
+                      child: Text(
+                        address == null ? 'Not on this network · Tap to reach it remotely' : 'Remote · ${address.text}',
+                        style: body(13, FontWeight.w500, Palette.textTertiary),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ]),
+                ]),
+              ),
+              CircleButton(Icons.more_horiz_rounded, size: 36, label: 'More for ${host.hostName}', onPressed: menu),
+            ]),
+          ),
         ),
-      );
+      ),
+    );
+  }
 }
 
 /// Nothing found yet: what's happening, and what to check.

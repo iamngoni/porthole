@@ -173,23 +173,30 @@ public final class SignalingConnection {
     }
 }
 
-/// Mac side: advertises the host on Bonjour and accepts signaling connections.
+/// Mac side: advertises the host on Bonjour and accepts signaling connections, on [port] when it's free so
+/// devices can also reach the Mac by name or address.
 public final class SignalingListener {
     public var onConnection: ((SignalingConnection) -> Void)?
     public var onStateChange: ((String) -> Void)?
 
     private let serviceName: String
     private let hostID: String
+    private let port: UInt16?
     private var listener: NWListener?
     private var isRunning = false
+    /// Another app holds [port], so this listener took any port instead.
+    private var portTaken = false
 
-    public init(serviceName: String, hostID: String) {
+    /// `port` nil listens on any port, found only through Bonjour.
+    public init(serviceName: String, hostID: String, port: UInt16? = portholeSignalingPort) {
         self.serviceName = serviceName
         self.hostID = hostID
+        self.port = port
     }
 
     public func start() throws {
         isRunning = true
+        portTaken = false
         try makeListener()
     }
 
@@ -200,33 +207,50 @@ public final class SignalingListener {
     }
 
     private func makeListener() throws {
-        let listener = try NWListener(using: signalingParameters())
+        let parameters = signalingParameters()
+        // Take the fixed port again straight after a restart instead of waiting out old connections.
+        parameters.allowLocalEndpointReuse = true
+        let fixed = portTaken ? nil : port.flatMap(NWEndpoint.Port.init(rawValue:))
+        let listener = try fixed.map { try NWListener(using: parameters, on: $0) } ?? NWListener(using: parameters)
         listener.service = NWListener.Service(name: serviceName, type: portholeBonjourType, domain: nil,
                                               txtRecord: NWTXTRecord([portholeHostIDKey: hostID]))
         listener.newConnectionHandler = { [weak self] connection in
             self?.onConnection?(SignalingConnection(connection: connection))
         }
-        listener.stateUpdateHandler = { [weak self] state in
+        listener.stateUpdateHandler = { [weak self, weak listener] state in
+            guard let self else { return }
+            if case .failed(.posix(.EADDRINUSE)) = state, fixed != nil {
+                log.info("listener: port \(self.port ?? 0, privacy: .public) is in use; taking any port")
+                self.portTaken = true
+                self.restartSoon(after: 0)
+                return
+            }
             let text: String = switch state {
-            case .ready: "Listening"
+            case .ready: self.listeningText(on: listener?.port)
             case .failed(let error): "Listener failed: \(error.localizedDescription)"
             case .waiting(let error): "Waiting: \(error.localizedDescription)"
             case .cancelled: "Stopped"
             default: "Starting"
             }
             log.info("listener: \(text, privacy: .public)")
-            self?.onStateChange?(text)
-            if case .failed = state { self?.restartSoon() }
+            self.onStateChange?(text)
+            if case .failed = state { self.restartSoon() }
         }
         listener.start(queue: .main)
         self.listener = listener
     }
 
+    private func listeningText(on actual: NWEndpoint.Port?) -> String {
+        guard let actual else { return "Listening" }
+        if let port, portTaken { return "Nearby only: port \(port) is in use" }
+        return "Listening on port \(actual.rawValue)"
+    }
+
     /// A failed listener can't be reused; make a new one so the Mac becomes discoverable again.
-    private func restartSoon() {
+    private func restartSoon(after delay: TimeInterval = 2) {
         listener?.cancel()
         listener = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, self.isRunning, self.listener == nil else { return }
             do {
                 try self.makeListener()

@@ -7,6 +7,7 @@ import 'package:porthole_protocol/porthole_protocol.dart';
 
 import 'client/client_controller.dart';
 import 'client/host_browser.dart';
+import 'client/remote_address.dart';
 
 /// Sample state for checking layouts without a Mac: `--dart-define=PREVIEW=<screen>`, and optionally
 /// `--dart-define=PREVIEW_ICONS=<folder>` with PNGs named by bundle ID, rendered on a Mac the way Porthole
@@ -66,7 +67,9 @@ Future<void> loadPreview(ClientController controller, String screen) async {
     paired: [
       PairedHost(hostId: 'h1', hostName: 'Ngonidzashe’s MacBook Pro', pairId: 'p1', secret: Uint8List(32)),
       PairedHost(hostId: 'h3', hostName: 'Office iMac', pairId: 'p3', secret: Uint8List(32)),
+      PairedHost(hostId: 'h4', hostName: 'Living Room Mac', pairId: 'p4', secret: Uint8List(32)),
     ],
+    addresses: const {'h3': RemoteAddress('office-imac')},
   );
 }
 

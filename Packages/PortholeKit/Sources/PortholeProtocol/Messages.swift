@@ -6,6 +6,11 @@ public let portholeProtocolVersion = 3
 /// Bonjour service type the Mac host advertises on the local network.
 public let portholeBonjourType = "_porthole._tcp"
 
+/// The port the Mac listens on, so a device that can't see it on Bonjour (over Tailscale or another VPN)
+/// can still reach it by name or address. If another app holds it, the Mac takes any port and can only be
+/// found nearby.
+public let portholeSignalingPort: UInt16 = 47801
+
 // MARK: - Shared value types
 
 public struct PixelSize: Codable, Hashable, Sendable {

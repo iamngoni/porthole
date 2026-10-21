@@ -11,6 +11,7 @@ import 'host_browser.dart';
 import 'image_size.dart';
 import 'pairing_store.dart';
 import 'peer_session.dart';
+import 'remote_address.dart';
 import 'signaling.dart';
 import 'system.dart';
 
@@ -159,6 +160,7 @@ final class ClientController extends ChangeNotifier {
 
   Phase _phase = const Browsing();
   List<PairedHost> _pairedHosts = const [];
+  Map<String, RemoteAddress> _addresses = const {};
   List<WindowInfo> _windows = const [];
   StreamInfo? _stream;
   int? _pendingWindowId;
@@ -178,6 +180,9 @@ final class ClientController extends ChangeNotifier {
   Phase get phase => _phase;
   List<DiscoveredHost> get hosts => _sampleHosts ?? _browser?.hosts ?? const [];
   List<PairedHost> get pairedHosts => _pairedHosts;
+
+  /// Where to reach [pairing]'s Mac when it isn't nearby, if the person gave an address.
+  RemoteAddress? addressOf(PairedHost pairing) => _addresses[pairing.hostId];
   BrowseStatus get browseStatus => _browser?.status ?? BrowseStatus.searching;
   List<WindowInfo> get windows => _windows;
   StreamInfo? get stream => _stream;
@@ -265,9 +270,29 @@ final class ClientController extends ChangeNotifier {
       link.start().then((outputs) => _apply(session, outputs));
     }, onError: (Object error) {
       if (!identical(session, _session)) return;
-      _fail(Problem("Couldn’t reach $name. Check that it’s awake and on the same Wi‑Fi, then try again.",
-          action: ProblemAction.tryAgain, host: host));
+      _fail(Problem(unreachableText(name, host.remote), action: ProblemAction.tryAgain, host: host));
     });
+  }
+
+  /// Connects to a paired Mac that isn't nearby at the address saved for it. The saved pairing still has
+  /// to check out, so another machine at that address can't pass for the Mac.
+  void connectRemotely(PairedHost pairing) {
+    final address = _addresses[pairing.hostId];
+    if (address != null) connect(DiscoveredHost.remote(pairing, address));
+  }
+
+  /// Saves where to reach [pairing]'s Mac when it isn't nearby, or forgets it when [address] is null.
+  Future<void> setAddress(PairedHost pairing, RemoteAddress? address) async {
+    try {
+      if (address == null) {
+        await _store.removeAddress(pairing.hostId);
+      } else {
+        await _store.saveAddress(pairing.hostId, address.text);
+      }
+    } catch (error) {
+      debugPrint('could not save the address: $error');
+    }
+    await reloadPairedHosts();
   }
 
   void retry(Problem problem) {
@@ -378,7 +403,11 @@ final class ClientController extends ChangeNotifier {
 
   Future<void> reloadPairedHosts() async {
     final hosts = await _store.all();
+    final addresses = await _store.addresses();
     _pairedHosts = hosts;
+    _addresses = {
+      for (final MapEntry(:key, :value) in addresses.entries) key: ?RemoteAddress.parse(value),
+    };
     notifyListeners();
   }
 
@@ -489,6 +518,12 @@ final class ClientController extends ChangeNotifier {
         Problem('The connection to $name was interrupted.', action: again, host: host),
     };
   }
+
+  /// What to say when the Mac can't be reached: nearby, check the Wi‑Fi; at an address, check the VPN.
+  static String unreachableText(String hostName, RemoteAddress? address) => address == null
+      ? 'Couldn’t reach $hostName. Check that it’s awake and on the same Wi‑Fi, then try again.'
+      : 'Couldn’t reach $hostName at ${address.text}. Check that the Mac is awake and that both are on Tailscale '
+          '(or the same VPN), then try again.';
 
   /// What to say when the Mac speaks another version of the protocol: which side needs the update.
   static String incompatibleText(String hostName, int theirVersion) => theirVersion < portholeProtocolVersion
@@ -731,9 +766,11 @@ final class ClientController extends ChangeNotifier {
   /// Sample state for checking layouts without a Mac: `--dart-define=PREVIEW=<screen>` (see preview.dart).
   void loadPreview(String screen, {required List<WindowInfo> windows, required List<AppInfo> apps,
       Map<int, ImageProvider> thumbnails = const {}, Map<String, ImageProvider> icons = const {},
-      List<DiscoveredHost> hosts = const [], List<PairedHost> paired = const []}) {
+      List<DiscoveredHost> hosts = const [], List<PairedHost> paired = const [],
+      Map<String, RemoteAddress> addresses = const {}}) {
     const host = 'Ngonidzashe’s MacBook Pro';
     _previewScreen = screen;
+    _addresses = addresses;
     _sampleHosts = hosts;
     _pairedHosts = paired;
     _windows = windows;

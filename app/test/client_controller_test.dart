@@ -1,9 +1,12 @@
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:glados/glados.dart' hide expect, group, test, setUp, tearDown;
 import 'package:porthole/client/client_controller.dart';
 import 'package:porthole/client/host_browser.dart';
 import 'package:porthole/client/pairing_store.dart';
 import 'package:porthole/client/peer_session.dart';
+import 'package:porthole/client/remote_address.dart';
 import 'package:porthole_protocol/porthole_protocol.dart';
 
 import 'support/fakes.dart';
@@ -246,6 +249,97 @@ void main() {
       await h.connect();
       h.peer.onStateChange?.call(PeerState.failed);
       expect(h.controller.problem!.text, 'The connection to Studio Mac failed.');
+    });
+  });
+
+  // no-prop-test: connectRemotely and setAddress only pass the address along; reading an address back is
+  // prop_an_address_reads_back_the_same, and where it leads is prop_a_remote_mac_is_reached_only_at_its_address.
+  group('from anywhere', () {
+    test('a paired Mac away from this network is reached at its saved address, with its saved pairing', () async {
+      final h = Harness();
+      await Harness.settle();
+      final pairing = h.controller.pairedHosts.single;
+      await h.controller.setAddress(pairing, const RemoteAddress('studio-mac'));
+      expect(h.controller.addressOf(pairing), const RemoteAddress('studio-mac'));
+      expect(await h.store.addresses(), {'host-1': 'studio-mac'});
+
+      h.controller.connectRemotely(pairing);
+      expect(h.controller.phase, const Connecting('Studio Mac'));
+      await Harness.until(() => h.mac.signals.any((s) => s.hasHello()));
+      final reached = h.reached.single;
+      expect(reached.targets, ['studio-mac']);
+      expect((reached.port, reached.hostId), (portholeSignalingPort, 'host-1'));
+      h.mac.sendSignal(Signal(offer: 'offer-sdp'));
+      await Harness.until(() => h.mac.signals.any((s) => s.hasAnswer()));
+      h.peer.onStateChange?.call(PeerState.connected);
+      expect(h.controller.phase, const Connected('Studio Mac'));
+    });
+
+    test('another machine at the saved address can’t pass for the Mac', () async {
+      final h = Harness()..macKnows = PairedHost(hostId: 'host-1', hostName: 'Studio Mac', pairId: 'pair-1', secret: Uint8List(32)..[0] = 9);
+      await Harness.settle();
+      final pairing = h.controller.pairedHosts.single;
+      await h.controller.setAddress(pairing, const RemoteAddress('100.101.102.103', 47900));
+      h.controller.connectRemotely(pairing);
+      await Harness.until(() => h.controller.problem != null);
+      expect(h.reached.single.targets, ['100.101.102.103']);
+      expect(h.controller.problem!.text, startsWith('Couldn’t confirm this is your Studio Mac.'));
+      expect(h.controller.phase, const Browsing());
+      // Nothing was sealed for it: the hello waits for the handshake.
+      expect(h.mac.signals, isEmpty);
+      expect(h.peers, isEmpty);
+    });
+
+    test('an address that can’t be reached says to check Tailscale', () async {
+      final store = MemoryPairingStore([testPairing]);
+      await store.saveAddress('host-1', 'studio-mac.tail1234.ts.net');
+      final c = ClientController(
+        deviceId: 'd',
+        deviceName: 'n',
+        store: store,
+        connect: (host) async => throw const SocketLikeError(),
+        makePeer: FakePeer.new,
+        keepAwake: (_) async {},
+      );
+      await Harness.until(() => c.pairedHosts.isNotEmpty);
+      c.connectRemotely(c.pairedHosts.single);
+      await Harness.until(() => c.problem != null);
+      expect(
+        c.problem!.text,
+        'Couldn’t reach Studio Mac at studio-mac.tail1234.ts.net. Check that the Mac is awake and that both are on '
+        'Tailscale (or the same VPN), then try again.',
+      );
+      expect(c.problem!.action, ProblemAction.tryAgain);
+      expect(c.problem!.host!.remote, const RemoteAddress('studio-mac.tail1234.ts.net'));
+      c.dispose();
+    });
+
+    test('without an address there is nowhere to go, and removing or forgetting drops it', () async {
+      final h = Harness();
+      await Harness.settle();
+      final pairing = h.controller.pairedHosts.single;
+      h.controller.connectRemotely(pairing);
+      expect(h.connects, 0);
+      expect(h.controller.phase, const Browsing());
+
+      await h.controller.setAddress(pairing, const RemoteAddress('studio-mac'));
+      await h.controller.setAddress(pairing, null);
+      expect(h.controller.addressOf(pairing), isNull);
+      expect(await h.store.addresses(), isEmpty);
+
+      await h.controller.setAddress(pairing, const RemoteAddress('studio-mac'));
+      await h.controller.forget(pairing);
+      expect(await h.store.addresses(), isEmpty);
+      expect(h.controller.addressOf(pairing), isNull);
+    });
+
+    test('an address the store can no longer read is left out', () async {
+      final store = MemoryPairingStore([testPairing]);
+      await store.saveAddress('host-1', 'not an address');
+      final c = ClientController(deviceId: 'd', deviceName: 'n', store: store, makePeer: FakePeer.new, keepAwake: (_) async {});
+      await Harness.until(() => c.pairedHosts.isNotEmpty);
+      expect(c.addressOf(c.pairedHosts.single), isNull);
+      c.dispose();
     });
   });
 

@@ -118,7 +118,8 @@ final class Harness {
       store: store,
       connect: (host) async {
         connects += 1;
-        return mac = FakeMac(testPairing);
+        reached.add(host);
+        return mac = FakeMac(macKnows);
       },
       makePeer: () {
         final peer = FakePeer();
@@ -136,8 +137,12 @@ final class Harness {
   final peers = <FakePeer>[];
   var awake = false;
 
-  /// How many times the controller opened a connection to a Mac.
+  /// How many times the controller opened a connection to a Mac, and where to.
   var connects = 0;
+  final reached = <DiscoveredHost>[];
+
+  /// The pairing the Mac at the other end holds. Another secret makes it a different machine.
+  PairedHost macKnows = testPairing;
 
   FakePeer get peer => peers.last;
 

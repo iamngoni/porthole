@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:glados/glados.dart' hide expect, group, test, setUp, tearDown;
 import 'package:porthole/client/pairing_store.dart';
@@ -20,6 +21,15 @@ extension PairingAnys on Any {
                 PairedHost(hostId: id, hostName: host.hostName, pairId: host.pairId, secret: host.secret))),
         text,
       ]);
+
+  /// Something done to the store: save or forget a pairing, save or remove an address. The IDs include ones
+  /// that look like the store's own keys.
+  Generator<(String, String, String)> get storeOp => combine3(
+        choose(const ['save', 'remove', 'saveAddress', 'removeAddress']),
+        choose(const ['mac-1', 'mac-2', 'host.mac-1', 'address.mac-1', 'deviceID']),
+        choose(const ['studio-mac', '100.101.102.103', 'studio-mac:47900']),
+        (String op, String id, String address) => (op, id, address),
+      );
 
   Generator<PairedHost> get pairedHost => combine4(nonEmptyText, text, nonEmptyText, secret,
       (String hostId, String hostName, String pairId, Uint8List secret) =>
@@ -59,6 +69,29 @@ void main() {
     expect(ids.toSet(), {for (final host in whole) host.hostId});
     for (final host in carried) {
       expectSameHost(host, whole.lastWhere((h) => h.hostId == host.hostId));
+    }
+  });
+
+  Glados(any.listWithLengthInRange(0, 12, any.storeOp), ExploreConfig(numRuns: 200))
+      .test('prop_the_keychain_keeps_pairings_and_addresses_apart_like_the_memory_store', (ops) async {
+    // glados 1.1.7 doesn't await its last replay of an async body, so a failure here is reported as
+    // "undeterministic"; the "Failing for input" line above it is the shrunk counterexample.
+    FlutterSecureStorage.setMockInitialValues({});
+    final keychain = SecurePairingStore();
+    final model = MemoryPairingStore();
+    final deviceId = await keychain.deviceId();
+    for (final (op, id, address) in ops) {
+      for (final store in [keychain, model]) {
+        await switch (op) {
+          'save' => store.save(PairedHost(hostId: id, hostName: 'Mac $id', pairId: 'pair', secret: Uint8List(32))),
+          'remove' => store.remove(id),
+          'saveAddress' => store.saveAddress(id, address),
+          _ => store.removeAddress(id),
+        };
+      }
+      expect((await keychain.all()).map((h) => h.hostId), (await model.all()).map((h) => h.hostId), reason: '$op $id');
+      expect(await keychain.addresses(), await model.addresses(), reason: '$op $id');
+      expect(await keychain.deviceId(), deviceId);
     }
   });
 

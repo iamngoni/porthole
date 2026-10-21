@@ -28,7 +28,7 @@ final class PortholeSystem {
   /// Where the Swift app kept its device ID.
   private static let swiftAppDeviceIdKey = "porthole.deviceID"
   /// The Swift app kept each pairing as its own item named by host ID, in the service this app's storage
-  /// uses too; this app's own items are named host.<id> and deviceID.
+  /// uses too; this app's own items are named host.<id>, address.<id> and deviceID.
   private static let pairingService = "dev.iamngoni.porthole.paired-hosts"
   private let channel: FlutterMethodChannel
   private var browser: NWBrowser?
@@ -77,7 +77,8 @@ final class PortholeSystem {
     var result: CFTypeRef?
     guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
           let items = result as? [[CFString: Any]] else { return [] }
-    return items.compactMap { $0[kSecAttrAccount] as? String }.filter { !$0.hasPrefix("host.") && $0 != "deviceID" }
+    return items.compactMap { $0[kSecAttrAccount] as? String }
+      .filter { !$0.hasPrefix("host.") && !$0.hasPrefix("address.") && $0 != "deviceID" }
   }
 
   private static func swiftAppRecord(_ account: String) -> String? {
