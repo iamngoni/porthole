@@ -1,9 +1,21 @@
+import CoreMedia
 import CoreVideo
 import Foundation
 import PropertyBased
 import Testing
+import VideoToolbox
 @testable import PortholeProtocol
 @testable import PortholeSession
+
+/// Whether this Mac encodes H.264 in hardware. GitHub's virtual Macs don't, and reach about 20 frames a second.
+private let hasHardwareH264Encoder: Bool = {
+    let specification = [kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: kCFBooleanTrue] as CFDictionary
+    var encoderID: CFString?
+    var properties: CFDictionary?
+    return VTCopySupportedPropertyDictionaryForEncoder(
+        width: 1280, height: 800, codecType: kCMVideoCodecType_H264, encoderSpecification: specification,
+        encoderIDOut: &encoderID, supportedPropertiesOut: &properties) == noErr
+}()
 
 /// End-to-end: a host and a client session in one process, connected over loopback,
 /// with real H.264 encode/decode and real data channels.
@@ -54,8 +66,10 @@ struct PeerSessionTests {
         #expect(recorder.lastSize == frame)
     }
 
-    /// A ProMotion client gets more than 60 frames a second when the session allows 120.
-    @Test func frames_pushed_at_120_fps_arrive_faster_than_60() async throws {
+    /// A ProMotion client gets more than 60 frames a second when the session allows 120. Software encoding
+    /// can't keep up, so it only runs where the Mac has a hardware encoder.
+    @Test(.enabled(if: hasHardwareH264Encoder, "needs a hardware H.264 encoder"))
+    func frames_pushed_at_120_fps_arrive_faster_than_60() async throws {
         let pair = Pair()
         defer { pair.close() }
         try await pair.connect(viewport: PixelSize(width: 1206, height: 2622), framesPerSecond: 120)
